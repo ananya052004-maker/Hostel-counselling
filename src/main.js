@@ -84,9 +84,14 @@ const icons = {
   menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
 };
 
+function secondaryImageFor(item) {
+  const primaryIndex = officialImages.indexOf(item.image);
+  return officialImages[(primaryIndex + 1 + officialImages.length) % officialImages.length];
+}
+
 function cardTemplate(item) {
   return `<article class="card">
-    <div class="card-image"><img src="${item.image}" alt="${item.name}" loading="lazy"><span class="card-type">${item.type}</span></div>
+    <div class="card-image"><img src="${item.image}" alt="${item.name}" loading="lazy"><img src="${secondaryImageFor(item)}" alt="${item.name} campus view" loading="lazy"><span class="card-type">${item.type}</span></div>
     <div class="card-body">
       <div class="card-title-row"><div><p class="eyebrow">${item.gender === 'mens' ? "MEN'S HOSTEL" : "WOMEN'S HOSTEL"}</p><h3 class="block-title">${item.code}</h3><p class="hostel-name">${item.name}</p></div><span class="rating">${item.type}</span></div>
       <p class="description">${item.description}</p>
