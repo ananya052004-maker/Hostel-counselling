@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requireAdmin } from '../lib/auth.js';
-import { runAllocation } from '../lib/allocate.js';
+import { runAllocation, previewAllocation } from '../lib/allocate.js';
 
 export const counsellingRouter = Router();
 const MAX_PREFERENCES = 8;
@@ -46,6 +46,12 @@ counsellingRouter.get('/allocation/me', requireAuth, (req, res) => {
     FROM allocations a LEFT JOIN hostels h ON h.code = a.hostel_code WHERE a.student_id = ?`).get(req.student.id);
   if (!row) return res.json({ status: 'not_processed' });
   res.json(row);
+});
+
+counsellingRouter.get('/allocation/preview', requireAuth, (req, res) => {
+  const hostelName = (code) => (code ? db.prepare('SELECT name FROM hostels WHERE code = ?').get(code)?.name : null);
+  const preview = previewAllocation(req.student.id);
+  res.json({ ...preview, hostelName: hostelName(preview.hostelCode) });
 });
 
 counsellingRouter.post('/admin/run-allocation', requireAdmin, (req, res) => {

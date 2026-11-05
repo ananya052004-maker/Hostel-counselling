@@ -2,12 +2,18 @@
 
 ## What this project does
 
-A browsing tool for VIT Vellore students to explore official hostel blocks
-before counselling. Users pick men's/women's/all hostels, filter by room
-type (1/2/3/4/6-bed) and accommodation type (Hostel vs Apartment), search
-by block code or name, and open a detail modal with room-count breakdowns,
-AC/Non-AC tags, mess info, contact numbers, and photos. There's a dark-mode
-toggle (persisted in `localStorage`).
+A browsing and counselling-simulation tool for VIT Vellore students.
+Two parts:
+
+- **Browse**: pick men's/women's/all hostels, filter by room type
+  (1/2/3/4/6-bed) and accommodation type (Hostel vs Apartment), search by
+  block code or name, and open a detail modal with room-count breakdowns,
+  AC/Non-AC tags, mess info, contact numbers, and photos. There's a
+  dark-mode toggle (persisted in `localStorage`).
+- **Counselling**: register with CGPA + branch, rank up to 8 hostel/
+  room-type choices, and see a live estimate of what you'd get — then a
+  final result once an admin runs an actual counselling round. See
+  "Counselling / allotment simulation" below for the full mechanics.
 
 Data (block names, phone numbers, room-type structure) is seeded from the
 official VIT hostel page; room counts are indicative placeholders — the UI
@@ -51,10 +57,11 @@ This is the backend-heavy part: a simplified version of how VIT's real
 seniority-based hostel counselling works.
 
 1. **Register / log in** (`/api/auth/register`, `/api/auth/login`) — a
-   student account stores `regNo`, `name`, `gender`, `cgpa`, and a
-   salted+hashed password (`scrypt`, timing-safe comparison on login).
+   student account stores `regNo`, `name`, `gender`, `cgpa`, `branch`, and
+   a salted+hashed password (`scrypt`, timing-safe comparison on login).
    A random session token is returned and must be sent as
-   `Authorization: Bearer <token>` on authenticated requests.
+   `Authorization: Bearer <token>` on authenticated requests. Branch must
+   be one of the codes from `GET /api/branches`.
 2. **Rank preferences** (`POST /api/preferences`) — a student submits an
    ordered list of up to 8 `{hostelCode, roomType}` choices. The server
    validates each one (hostel exists, room type offered, gender category
@@ -63,23 +70,60 @@ seniority-based hostel counselling works.
    a room is granted, but a waitlisted student can resubmit.
 3. **Run allocation** (`POST /api/admin/run-allocation`, admin-key
    protected) — [lib/allocate.js](lib/allocate.js) implements a **serial
-   dictatorship** algorithm: pending students (no `allocated` row yet)
-   are processed in order of `cgpa DESC`, and each is granted the
-   highest-ranked choice that still has unused capacity for their
-   gender. Seat usage is tracked per `(hostel_code, room_type)` in the
-   `seat_usage` table and incremented inside a single SQLite
-   transaction, so capacity can never be oversold even with concurrent
-   runs. Anyone who exhausts their list without a free seat is marked
-   `waitlisted` (and reconsidered on the next run).
+   dictatorship** algorithm. Pending students (no `allocated` row yet)
+   are sorted by priority and each is granted the highest-ranked choice
+   that still has unused capacity for their gender. Seat usage is
+   tracked per `(hostel_code, room_type)` in the `seat_usage` table and
+   incremented inside a single SQLite transaction, so capacity can never
+   be oversold. Anyone who exhausts their list without a free seat is
+   marked `waitlisted` (and reconsidered on the next run).
+
+   **Priority rule:** students are grouped by branch, smallest
+   `approxStrength` first — that whole group is processed before the
+   next-larger branch. *Within* the same branch, higher CGPA goes first.
+   So branch size is the dominant factor; CGPA only breaks ties inside a
+   branch. See [src/data.js](src/data.js) `branchStrengths` for the
+   branch list and the important caveat about where those numbers come
+   from (next section).
 4. **Check status** (`GET /api/allocation/me`) — a student sees
    `not_processed`, `waitlisted`, or `allocated` with their assigned
-   block/room type.
-5. **Live seat availability** (`GET /api/hostels/:code/availability`) —
+   block/room type. This only changes after an admin round actually runs.
+5. **Live estimate** (`GET /api/allocation/preview`) — answers "what
+   would I get right now?" *without* waiting for an admin round and
+   without writing anything to the database. It replays the exact same
+   priority order and seat logic as a real run, starting from whatever
+   seats are already committed, and stops as soon as it reaches the
+   asking student (in a serial-dictatorship allocation, nothing
+   processed *after* a student can change that student's own outcome,
+   so this is cheap and exact — not a rough guess). Returns
+   `likely_allocated` / `likely_waitlisted` if no real round has run yet
+   for that student, or the real `allocated` / `waitlisted` result once
+   one has. This is what powers the "Live estimate" card in the
+   Counselling section of the UI.
+6. **Live seat availability** (`GET /api/hostels/:code/availability`) —
    computes remaining seats per room type from the hostel's total
    capacity minus `seat_usage`, in real time.
-6. **Admin stats** (`GET /api/admin/stats`, admin-key protected) —
+7. **Admin stats** (`GET /api/admin/stats`, admin-key protected) —
    aggregate counts (total students, allocated, waitlisted, seat usage
    per block) for monitoring a counselling round.
+
+### ⚠️ About the branch-strength numbers
+
+`GET /api/branches` and the `branchStrengths` list in
+[src/data.js](src/data.js) (Civil, Chemical, CSBS, Biotech, ECE, Mech,
+CSE) are **not** official VIT figures. I looked for a published VIT
+Vellore branch-wise seat matrix and could not find one — the official
+VITEEE seat matrix isn't posted as a browsable page, and third-party
+sites (CollegeDekho, Careers360, CollegePravesh) disagree with each
+other by hundreds of seats for the same branch (CSE alone ranges from
+roughly 1200 to 1750 depending on the source). The numbers seeded here
+are the most-consistent figures found across those sources, used only
+to demonstrate the "smaller branch gets priority" rule — they are
+**not** a claim about real VIT intake. The app surfaces this as a
+`disclaimer` string from `GET /api/branches` and shows it directly in
+the Counselling section's allocation panel. Replace the list in
+`src/data.js` with real figures if you obtain them (e.g. from VTOP, a
+brochure, or VIT admissions directly).
 
 `ADMIN_KEY` must be set as an environment variable for these routes to
 work at all — with no `ADMIN_KEY` set, they respond `503` rather than
@@ -90,24 +134,33 @@ falling back to an insecure default.
 It's easy to assume "submit preferences" immediately gives you a room.
 It doesn't — this mirrors real counselling, which runs in batches:
 
-1. **Any time**: students register and submit their ranked list (1 to 8
-   choices — you do *not* need all 8). The "Counselling" section's
-   submit button shows **"Saving…"** while the request is in flight and
-   **"✓ Preferences saved…"** once it's confirmed, with a live
-   `(X/8 added)` counter so it's clear partial lists are fine.
+1. **Any time**: students register (regNo, name, gender, CGPA, branch)
+   and submit their ranked list (1 to 8 choices — you do *not* need all
+   8). The "Counselling" section's submit button shows **"Saving…"**
+   while the request is in flight and **"✓ Preferences saved…"** once
+   it's confirmed, with a live `(X/8 added)` counter so it's clear
+   partial lists are fine. Right after saving, the allocation panel
+   immediately shows a **live estimate** ("Likely outcome: …") computed
+   from everyone's current submissions — this can change as other
+   students submit or edit their own choices, so it's clearly labeled
+   as an estimate, not a final result.
 2. **Separately, by whoever is running the round**: an admin calls
    `POST /api/admin/run-allocation` (curl/Postman, with the `x-admin-key`
    header — there's deliberately no button for this in the UI, see
    below). This processes *every* student who has submitted preferences
-   and hasn't already been allocated, all at once, by CGPA priority.
-3. **After that runs**, each student's "Your allocation status" panel
-   updates from "Not yet processed" to "Allocated" or "Waitlisted" the
-   next time they load the page (it calls `GET /api/allocation/me`).
+   and hasn't already been allocated, all at once, in branch-then-CGPA
+   priority order.
+3. **After that runs**, each student's allocation panel switches from
+   the dashed "live estimate" card to a solid **final** card — "Allocated"
+   or "Waitlisted" — the next time they load the page (`GET
+   /api/allocation/me` takes priority over the preview once a real
+   result exists).
 
-So after submitting, "Not yet processed" is the **correct, expected**
-state until someone runs a counselling round — it's not a bug. Re-run
-`POST /api/admin/run-allocation` any time to process newly-submitted or
-still-waitlisted students in another batch.
+So after submitting, seeing a dashed "live estimate" card (rather than a
+solid final one) is the **correct, expected** state until someone runs a
+counselling round — it's not a bug. Re-run `POST /api/admin/run-allocation`
+any time to process newly-submitted or still-waitlisted students in
+another batch.
 
 The admin endpoints are intentionally **not** wired into the frontend —
 putting the admin key in client-side JS would expose it to every

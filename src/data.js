@@ -16,6 +16,23 @@ export const officialBlocks = [
   ['LH A', 'Ladies Hostel A', 'ladies', '0416 220 2669'], ['LH B', 'Ladies Hostel B', 'ladies', '0416 220 2670'], ['LH C', 'Ladies Hostel C', 'ladies', '0416 220 2703'], ['LH D', 'Ladies Hostel D', 'ladies', '0416 220 2704'], ['LH E', 'Ladies Hostel E', 'ladies', '0416 220 2705'], ['LH F', 'Ladies Hostel F', 'ladies', '0416 220 2706'], ['LH G', 'Ladies Hostel G', 'ladies', '0416 220 2892'], ['LH H', 'Ladies Hostel H', 'ladies', '0416 220 2894'], ['LH J', 'Ladies Hostel J', 'ladies', '0416 220 2896'], ['RGT H', 'RGT H Ladies Hostel', 'ladies', '0416 220 5003'], ['LH GH Annex', 'Ladies Hostel GH Annex', 'ladies', '0416 220 2244']
 ];
 
+// Branch-wise intake figures. VIT does not publish a single clean public
+// seat matrix, and third-party sources (CollegeDekho, Careers360,
+// CollegePravesh) disagree with each other by hundreds of seats for the
+// same branch. These numbers are the most-consistent figures found across
+// those sources — NOT confirmed against an official VIT document — and
+// exist only to drive the "smaller branch gets allocation priority"
+// simulation rule. Replace with real figures if you have them.
+export const branchStrengths = [
+  { code: 'CIVIL', name: 'Civil Engineering', approxStrength: 120 },
+  { code: 'CHEM', name: 'Chemical Engineering', approxStrength: 120 },
+  { code: 'CSBS', name: 'Computer Science and Business Systems', approxStrength: 180 },
+  { code: 'BIOTECH', name: 'Biotechnology', approxStrength: 180 },
+  { code: 'ECE', name: 'Electronics and Communication Engineering', approxStrength: 720 },
+  { code: 'MECH', name: 'Mechanical Engineering', approxStrength: 720 },
+  { code: 'CSE', name: 'Computer Science and Engineering', approxStrength: 1200 }
+];
+
 export function getSeedHostels() {
   const hostels = officialBlocks.map(([code, name, gender, phone], index) => ({
     code, name, gender, type: 'Hostel', phone, beds: '1 / 2 / 3 / 4 bed',

@@ -10,6 +10,9 @@ let counsellingMode = 'register';
 let allHostelsForGender = [];
 let myChoices = [];
 let allocation = null;
+let preview = null;
+let branchList = [];
+let branchDisclaimer = '';
 let prefSaveState = null; // null | 'saving' | 'saved'
 
 const ROOM_TYPE_LABELS = { 1: 'Single', 2: 'Double', 3: 'Triple', 4: 'Four-bed', 6: 'Six-bed' };
@@ -30,12 +33,19 @@ function logout() {
   localStorage.removeItem(TOKEN_KEY);
   myChoices = [];
   allocation = null;
+  preview = null;
   renderCounselling();
 }
 
 async function loadGenderHostels(gender) {
   const response = await fetch(`/api/hostels?gender=${gender}`);
   allHostelsForGender = await response.json();
+}
+
+async function loadBranches() {
+  const { branches, disclaimer } = await apiFetch('/api/branches');
+  branchList = branches;
+  branchDisclaimer = disclaimer;
 }
 
 async function loadMyChoices() {
@@ -47,12 +57,17 @@ async function loadAllocation() {
   allocation = await apiFetch('/api/allocation/me');
 }
 
+async function loadPreview() {
+  preview = myChoices.length ? await apiFetch('/api/allocation/preview') : null;
+}
+
 async function initAuth() {
   if (!authState.token) return;
   try {
     const { student } = await apiFetch('/api/auth/me');
     authState.student = student;
     await Promise.all([loadGenderHostels(student.gender), loadMyChoices(), loadAllocation()]);
+    await loadPreview();
   } catch {
     logout();
   }
@@ -107,12 +122,15 @@ async function renderCards() {
 
 function authFormTemplate(mode) {
   const isRegister = mode === 'register';
+  const branchOptions = branchList.map((branch) => `<option value="${branch.code}">${branch.name} (~${branch.approxStrength} students)</option>`).join('');
   return `<form id="auth-form" class="auth-form" data-mode="${mode}">
     <h3>${isRegister ? 'Create your account' : 'Log in'}</h3>
     <input name="regNo" placeholder="Registration number" autocomplete="username" required>
     ${isRegister ? '<input name="name" placeholder="Full name" required>' : ''}
     ${isRegister ? '<select name="gender" required><option value="">Gender category</option><option value="mens">Men\'s</option><option value="ladies">Women\'s</option></select>' : ''}
-    ${isRegister ? '<input name="cgpa" type="number" min="0" max="10" step="0.01" placeholder="CGPA (sets allotment priority)" required>' : ''}
+    ${isRegister ? '<input name="cgpa" type="number" min="0" max="10" step="0.01" placeholder="CGPA" required>' : ''}
+    ${isRegister ? `<select name="branch" required><option value="">Branch</option>${branchOptions}</select>` : ''}
+    ${isRegister ? '<p class="form-note" style="margin:0">Smaller branches get allocation priority. Branch sizes are estimates — see note below the allocation panel.</p>' : ''}
     <input name="password" type="password" placeholder="Password" minlength="6" autocomplete="${isRegister ? 'new-password' : 'current-password'}" required>
     <button type="submit">${isRegister ? 'Register' : 'Log in'}</button>
     <p class="form-error" id="auth-error"></p>
@@ -143,13 +161,19 @@ function preferenceBuilderTemplate() {
 }
 
 function allocationTemplate() {
-  if (!allocation || allocation.status === 'not_processed') {
-    return '<div class="allocation-card"><b>Not yet processed</b><p class="form-note">Submit your ranked preferences, then wait for the counselling round to run.</p></div>';
+  let card;
+  if (allocation && allocation.status !== 'not_processed') {
+    card = allocation.status === 'waitlisted'
+      ? '<div class="allocation-card status-waitlisted"><b>Waitlisted</b><p class="form-note">None of your preferred rooms had space in the latest round. You will be reconsidered when it runs again.</p></div>'
+      : `<div class="allocation-card status-allocated"><b>Allocated: ${allocation.hostelCode} — ${allocation.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(allocation.roomType)}. Allotted ${allocation.allocatedAt}.</p></div>`;
+  } else if (!preview || preview.status === 'no_preferences') {
+    card = '<div class="allocation-card"><b>Not yet processed</b><p class="form-note">Submit your ranked preferences to see a live estimate here, then wait for the counselling round to run for the final result.</p></div>';
+  } else if (preview.status === 'likely_waitlisted') {
+    card = '<div class="allocation-card status-preview status-waitlisted"><b>Live estimate: likely waitlisted</b><p class="form-note">Based on everyone\'s current submissions, none of your choices would have room right now. This updates as others submit or change choices, and is not final until a counselling round actually runs.</p></div>';
+  } else {
+    card = `<div class="allocation-card status-preview status-allocated"><b>Live estimate: ${preview.hostelCode} — ${preview.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(preview.roomType)}. Based on your branch/CGPA priority against current submissions — not final until a counselling round runs.</p></div>`;
   }
-  if (allocation.status === 'waitlisted') {
-    return '<div class="allocation-card status-waitlisted"><b>Waitlisted</b><p class="form-note">None of your preferred rooms had space in the latest round. You will be reconsidered when it runs again.</p></div>';
-  }
-  return `<div class="allocation-card status-allocated"><b>Allocated: ${allocation.hostelCode} — ${allocation.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(allocation.roomType)}. Allotted ${allocation.allocatedAt}.</p></div>`;
+  return `${card}<p class="form-note" style="margin-top:14px">Priority rule: students in a smaller branch are considered first as a group; within the same branch, higher CGPA goes first. ${branchDisclaimer}</p>`;
 }
 
 function bindAuthForm() {
@@ -169,6 +193,7 @@ function bindAuthForm() {
       authState.student = data.student;
       localStorage.setItem(TOKEN_KEY, data.token);
       await Promise.all([loadGenderHostels(data.student.gender), loadMyChoices(), loadAllocation()]);
+      await loadPreview();
       renderCounselling();
     } catch (error) {
       errorEl.textContent = error.message;
@@ -210,6 +235,7 @@ function bindCounsellingBody() {
     try {
       await apiFetch('/api/preferences', { method: 'POST', body: JSON.stringify({ choices: myChoices }) });
       await loadAllocation();
+      await loadPreview();
       prefSaveState = 'saved';
       renderCounselling();
     } catch (error) {
@@ -228,7 +254,8 @@ function renderCounselling() {
     bindAuthForm();
     return;
   }
-  body.innerHTML = `<div class="student-chip"><span>Logged in as <b>${authState.student.name}</b> (${authState.student.regNo}) · CGPA ${authState.student.cgpa}</span><button type="button" id="logout-btn">Log out</button></div>
+  const branchName = branchList.find((branch) => branch.code === authState.student.branch)?.name || authState.student.branch;
+  body.innerHTML = `<div class="student-chip"><span>Logged in as <b>${authState.student.name}</b> (${authState.student.regNo}) · ${branchName} · CGPA ${authState.student.cgpa}</span><button type="button" id="logout-btn">Log out</button></div>
     <div class="counselling-grid">
       <div><h3>Rank your choices</h3>${preferenceBuilderTemplate()}</div>
       <div><h3>Your allocation status</h3>${allocationTemplate()}</div>
@@ -267,6 +294,7 @@ document.querySelector('#root').innerHTML = `
 
 renderCards();
 renderCounselling();
+loadBranches().then(renderCounselling);
 initAuth().then(renderCounselling);
 
 document.addEventListener('click', (event) => {

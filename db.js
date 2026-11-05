@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { getSeedHostels } from './src/data.js';
+import { getSeedHostels, branchStrengths } from './src/data.js';
 
 export const db = new Database('data/hostels.db');
 db.pragma('journal_mode = WAL');
@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS students (
   name TEXT NOT NULL,
   gender TEXT NOT NULL CHECK(gender IN ('mens','ladies')),
   cgpa REAL NOT NULL,
+  branch TEXT NOT NULL DEFAULT '',
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -45,6 +46,11 @@ CREATE TABLE IF NOT EXISTS seat_usage (
   PRIMARY KEY (hostel_code, room_type)
 );`);
 
+const studentColumns = db.prepare('PRAGMA table_info(students)').all().map((column) => column.name);
+if (!studentColumns.includes('branch')) {
+  db.exec("ALTER TABLE students ADD COLUMN branch TEXT NOT NULL DEFAULT ''");
+}
+
 const insertHostel = db.prepare(`INSERT OR IGNORE INTO hostels
   (code,name,gender,type,phone,beds,room_types,tags,mess,image,room_counts,description)
   VALUES (@code,@name,@gender,@type,@phone,@beds,@roomTypes,@tags,@mess,@image,@roomCounts,@description)`);
@@ -56,3 +62,5 @@ db.prepare("DELETE FROM hostels WHERE type = 'Apartment' AND code IN ('MA 1', 'M
 seed(getSeedHostels().filter((row) => row.type === 'Apartment'));
 
 export const ROOM_TYPE_KEYS = { 1: 'single', 2: 'double', 3: 'triple', 4: 'four', 6: 'six' };
+export { branchStrengths };
+export const branchStrengthMap = new Map(branchStrengths.map((branch) => [branch.code, branch.approxStrength]));
