@@ -49,9 +49,7 @@ counsellingRouter.get('/allocation/me', requireAuth, (req, res) => {
 });
 
 counsellingRouter.get('/allocation/preview', requireAuth, (req, res) => {
-  const hostelName = (code) => (code ? db.prepare('SELECT name FROM hostels WHERE code = ?').get(code)?.name : null);
-  const preview = previewAllocation(req.student.id);
-  res.json({ ...preview, hostelName: hostelName(preview.hostelCode) });
+  res.json(previewAllocation(req.student.id));
 });
 
 counsellingRouter.post('/admin/run-allocation', requireAdmin, (req, res) => {

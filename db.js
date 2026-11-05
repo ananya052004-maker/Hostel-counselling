@@ -12,12 +12,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS hostels (
 CREATE TABLE IF NOT EXISTS students (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   reg_no TEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   gender TEXT NOT NULL CHECK(gender IN ('mens','ladies')),
   cgpa REAL NOT NULL,
   branch TEXT NOT NULL DEFAULT '',
-  password_hash TEXT NOT NULL,
-  password_salt TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -49,6 +48,14 @@ CREATE TABLE IF NOT EXISTS seat_usage (
 const studentColumns = db.prepare('PRAGMA table_info(students)').all().map((column) => column.name);
 if (!studentColumns.includes('branch')) {
   db.exec("ALTER TABLE students ADD COLUMN branch TEXT NOT NULL DEFAULT ''");
+}
+if (!studentColumns.includes('email')) {
+  db.exec("ALTER TABLE students ADD COLUMN email TEXT NOT NULL DEFAULT ''");
+}
+try {
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_students_email ON students(email)');
+} catch {
+  // pre-existing duplicate blank emails on an old row set; harmless to skip
 }
 
 const insertHostel = db.prepare(`INSERT OR IGNORE INTO hostels

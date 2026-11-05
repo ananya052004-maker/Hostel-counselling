@@ -35,16 +35,15 @@ tells users to confirm the real numbers on VTOP.
     [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)), creates
     all tables, seeds the hostel catalog from
     [src/data.js](src/data.js).
-  - [lib/auth.js](lib/auth.js) — password hashing (`scrypt`, built into
-    Node's `crypto`, no extra dependency), session token creation, and two
+  - [lib/auth.js](lib/auth.js) — random session token creation, and two
     middlewares: `requireAuth` (student session) and `requireAdmin`
     (shared-secret header, only active if `ADMIN_KEY` is set).
   - [lib/allocate.js](lib/allocate.js) — the **counselling allocation
     engine** (see below).
   - [routes/hostels.js](routes/hostels.js) — hostel listing/detail/
     live-availability endpoints.
-  - [routes/auth.js](routes/auth.js) — `POST /api/auth/register`,
-    `POST /api/auth/login`, `GET /api/auth/me`.
+  - [routes/auth.js](routes/auth.js) — `POST /api/auth/identify`,
+    `POST /api/auth/register`, `GET /api/auth/me`.
   - [routes/counselling.js](routes/counselling.js) — preference
     submission, allocation status, and admin-only allocation-run/stats
     endpoints.
@@ -56,12 +55,25 @@ tells users to confirm the real numbers on VTOP.
 This is the backend-heavy part: a simplified version of how VIT's real
 seniority-based hostel counselling works.
 
-1. **Register / log in** (`/api/auth/register`, `/api/auth/login`) — a
-   student account stores `regNo`, `name`, `gender`, `cgpa`, `branch`, and
-   a salted+hashed password (`scrypt`, timing-safe comparison on login).
-   A random session token is returned and must be sent as
-   `Authorization: Bearer <token>` on authenticated requests. Branch must
-   be one of the codes from `GET /api/branches`.
+1. **Log in or register — no password** (`POST /api/auth/identify`, then
+   `POST /api/auth/register` if needed). A student types only an email.
+   `identify` looks it up: if an account with that email exists, it logs
+   them straight in (`{found: true, token, student}`); if not, it
+   returns `{found: false}` and the frontend reveals the rest of the
+   registration form (name, regNo, gender, CGPA, branch) pre-filled with
+   that email. Once registered, the same email always just logs in from
+   then on — no separate "sign up again" step. A random session token is
+   returned either way and must be sent as `Authorization: Bearer
+   <token>` on authenticated requests. Branch must be one of the codes
+   from `GET /api/branches`.
+
+   **Trade-off, on purpose:** there is no password, so anyone who knows
+   or guesses a student's email can open their session — this is
+   intentionally traded for frictionless UX in a classroom/demo tool,
+   not meant for an environment with an adversarial user base. If this
+   ever needs to be real (grades real room assignments, has user data
+   worth protecting), add back a verification step — e.g. a one-time
+   code emailed on `identify`, verified before issuing the session token.
 2. **Rank preferences** (`POST /api/preferences`) — a student submits an
    ordered list of up to 8 `{hostelCode, roomType}` choices. The server
    validates each one (hostel exists, room type offered, gender category
@@ -87,19 +99,30 @@ seniority-based hostel counselling works.
    from (next section).
 4. **Check status** (`GET /api/allocation/me`) — a student sees
    `not_processed`, `waitlisted`, or `allocated` with their assigned
-   block/room type. This only changes after an admin round actually runs.
+   block/room type. Only `allocated` is treated as final/locked by the
+   UI — a `waitlisted` result from a past round is still live, since
+   waitlisted students are reconsidered on the next run.
 5. **Live estimate** (`GET /api/allocation/preview`) — answers "what
-   would I get right now?" *without* waiting for an admin round and
-   without writing anything to the database. It replays the exact same
-   priority order and seat logic as a real run, starting from whatever
-   seats are already committed, and stops as soon as it reaches the
-   asking student (in a serial-dictatorship allocation, nothing
-   processed *after* a student can change that student's own outcome,
-   so this is cheap and exact — not a rough guess). Returns
-   `likely_allocated` / `likely_waitlisted` if no real round has run yet
-   for that student, or the real `allocated` / `waitlisted` result once
-   one has. This is what powers the "Live estimate" card in the
-   Counselling section of the UI.
+   would I get right now, and what happens to each of my ranked choices?"
+   *without* waiting for an admin round and without writing anything to
+   the database. It replays the exact same priority order and seat logic
+   as a real run, starting from whatever seats are already committed,
+   processing only the students strictly ahead of the asking student in
+   priority order to build a seat-usage snapshot, then walks that
+   student's own ranked list once against it (nothing processed *after*
+   a student can change that student's own outcome in a serial
+   dictatorship, so this is cheap and exact — not a rough guess).
+   Returns:
+   - a top-level `likely_allocated` / `likely_waitlisted` summary (or the
+     real `allocated` result if a round already locked one in), and
+   - `breakdown`: every one of the student's ranked choices, each tagged
+     `would_get` (the one they'd actually be granted), `full` (someone
+     with equal-or-better priority already took every seat there), or
+     `not_reached` (ranked below the one they'd get, so it's moot).
+
+   This is what powers the "Live estimate" card **and** the numbered
+   "Your choices, in priority order" list beneath it in the Counselling
+   section of the UI — clicking Submit updates both immediately.
 6. **Live seat availability** (`GET /api/hostels/:code/availability`) —
    computes remaining seats per room type from the hostel's total
    capacity minus `seat_usage`, in real time.

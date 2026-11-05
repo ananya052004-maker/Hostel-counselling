@@ -37,6 +37,15 @@
 .allocation-card.status-allocated{border-color:var(--deep);background:#eaf4ee}
 .allocation-card.status-waitlisted{border-color:#d99b59;background:#fff7ed}
 .allocation-card.status-preview{border-style:dashed}
+.breakdown-heading{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:20px 0 10px;font-weight:600}
+.breakdown-list li{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.breakdown-list em{font-style:normal;font-size:11px;white-space:nowrap}
+.breakdown-list .breakdown-would_get{border-color:var(--deep)}
+.breakdown-list .breakdown-would_get em{color:var(--deep);font-weight:600}
+.breakdown-list .breakdown-full{opacity:.65}
+.breakdown-list .breakdown-full em{color:#b5553d}
+.breakdown-list .breakdown-not_reached{opacity:.5}
+.breakdown-list .breakdown-not_reached em{color:var(--muted)}
 .form-error{color:#b5553d;font-size:12px;margin:4px 0 0;min-height:14px}
 .form-success{color:var(--deep);font-size:12px;font-weight:600;margin:10px 0 0}
 .form-note{color:var(--muted);font-size:11px;line-height:1.5;margin:10px 0 0}

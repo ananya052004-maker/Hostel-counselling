@@ -6,7 +6,8 @@ const state = { gender: null, search: '', bed: 'all', type: 'all' };
 
 const TOKEN_KEY = 'vit-hostel-token';
 const authState = { token: localStorage.getItem(TOKEN_KEY) || null, student: null };
-let counsellingMode = 'register';
+let authStep = 'email'; // 'email' | 'register'
+let pendingEmail = '';
 let allHostelsForGender = [];
 let myChoices = [];
 let allocation = null;
@@ -34,6 +35,8 @@ function logout() {
   myChoices = [];
   allocation = null;
   preview = null;
+  authStep = 'email';
+  pendingEmail = '';
   renderCounselling();
 }
 
@@ -120,21 +123,29 @@ async function renderCards() {
   document.querySelector('#cards').innerHTML = filtered.length ? filtered.map(cardTemplate).join('') : `<div class="empty"><strong>No hostels found</strong><span>Try a different search or filter.</span></div>`;
 }
 
-function authFormTemplate(mode) {
-  const isRegister = mode === 'register';
+function authFormTemplate() {
+  if (authStep === 'email') {
+    return `<form id="auth-form" class="auth-form" data-step="email">
+      <h3>Log in or register</h3>
+      <input name="email" type="email" placeholder="Email address" autocomplete="email" required>
+      <button type="submit">Continue</button>
+      <p class="form-error" id="auth-error"></p>
+      <p class="form-note" style="margin:0">No password needed — if this email is already registered, you're logged in immediately. Otherwise we'll ask a few quick details.</p>
+    </form>`;
+  }
   const branchOptions = branchList.map((branch) => `<option value="${branch.code}">${branch.name} (~${branch.approxStrength} students)</option>`).join('');
-  return `<form id="auth-form" class="auth-form" data-mode="${mode}">
-    <h3>${isRegister ? 'Create your account' : 'Log in'}</h3>
-    <input name="regNo" placeholder="Registration number" autocomplete="username" required>
-    ${isRegister ? '<input name="name" placeholder="Full name" required>' : ''}
-    ${isRegister ? '<select name="gender" required><option value="">Gender category</option><option value="mens">Men\'s</option><option value="ladies">Women\'s</option></select>' : ''}
-    ${isRegister ? '<input name="cgpa" type="number" min="0" max="10" step="0.01" placeholder="CGPA" required>' : ''}
-    ${isRegister ? `<select name="branch" required><option value="">Branch</option>${branchOptions}</select>` : ''}
-    ${isRegister ? '<p class="form-note" style="margin:0">Smaller branches get allocation priority. Branch sizes are estimates — see note below the allocation panel.</p>' : ''}
-    <input name="password" type="password" placeholder="Password" minlength="6" autocomplete="${isRegister ? 'new-password' : 'current-password'}" required>
-    <button type="submit">${isRegister ? 'Register' : 'Log in'}</button>
+  return `<form id="auth-form" class="auth-form" data-step="register">
+    <h3>Finish creating your account</h3>
+    <input name="email" type="email" value="${pendingEmail}" readonly>
+    <input name="name" placeholder="Full name" required>
+    <input name="regNo" placeholder="Registration number" required>
+    <select name="gender" required><option value="">Gender category</option><option value="mens">Men's</option><option value="ladies">Women's</option></select>
+    <input name="cgpa" type="number" min="0" max="10" step="0.01" placeholder="CGPA" required>
+    <select name="branch" required><option value="">Branch</option>${branchOptions}</select>
+    <p class="form-note" style="margin:0">Smaller branches get allocation priority. Branch sizes are estimates — see note below the allocation panel.</p>
+    <button type="submit">Register</button>
     <p class="form-error" id="auth-error"></p>
-    <p class="auth-switch">${isRegister ? 'Already registered?' : "Don't have an account?"} <button type="button" id="auth-switch-btn">${isRegister ? 'Log in' : 'Register'}</button></p>
+    <p class="auth-switch"><button type="button" id="auth-switch-btn">Use a different email</button></p>
   </form>`;
 }
 
@@ -160,26 +171,49 @@ function preferenceBuilderTemplate() {
   </div>`;
 }
 
+const BREAKDOWN_LABELS = {
+  would_get: '✓ You would get this',
+  full: 'Full — no room for you here',
+  not_reached: "Not needed — you'd already have a room"
+};
+
+function breakdownListTemplate(breakdown) {
+  if (!breakdown.length) return '';
+  const items = breakdown.map((item) => `<li class="breakdown-${item.status}"><span>${item.rank}. ${item.hostelCode}${item.hostelName ? ` — ${item.hostelName}` : ''} · ${roomTypeLabel(item.roomType)}</span><em>${BREAKDOWN_LABELS[item.status] || item.status}</em></li>`).join('');
+  return `<h4 class="breakdown-heading">Your choices, in priority order</h4><ul class="pref-list breakdown-list">${items}</ul>`;
+}
+
 function allocationTemplate() {
   let card;
-  if (allocation && allocation.status !== 'not_processed') {
-    card = allocation.status === 'waitlisted'
-      ? '<div class="allocation-card status-waitlisted"><b>Waitlisted</b><p class="form-note">None of your preferred rooms had space in the latest round. You will be reconsidered when it runs again.</p></div>'
-      : `<div class="allocation-card status-allocated"><b>Allocated: ${allocation.hostelCode} — ${allocation.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(allocation.roomType)}. Allotted ${allocation.allocatedAt}.</p></div>`;
+  let breakdown = [];
+  if (allocation && allocation.status === 'allocated') {
+    card = `<div class="allocation-card status-allocated"><b>Allocated: ${allocation.hostelCode} — ${allocation.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(allocation.roomType)}. Allotted ${allocation.allocatedAt}.</p></div>`;
   } else if (!preview || preview.status === 'no_preferences') {
     card = '<div class="allocation-card"><b>Not yet processed</b><p class="form-note">Submit your ranked preferences to see a live estimate here, then wait for the counselling round to run for the final result.</p></div>';
-  } else if (preview.status === 'likely_waitlisted') {
-    card = '<div class="allocation-card status-preview status-waitlisted"><b>Live estimate: likely waitlisted</b><p class="form-note">Based on everyone\'s current submissions, none of your choices would have room right now. This updates as others submit or change choices, and is not final until a counselling round actually runs.</p></div>';
   } else {
-    card = `<div class="allocation-card status-preview status-allocated"><b>Live estimate: ${preview.hostelCode} — ${preview.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(preview.roomType)}. Based on your branch/CGPA priority against current submissions — not final until a counselling round runs.</p></div>`;
+    breakdown = preview.breakdown || [];
+    const waitlistNote = allocation && allocation.status === 'waitlisted' ? ' You were waitlisted in the last counselling round — this is your live estimate for the next one.' : '';
+    card = preview.status === 'likely_waitlisted'
+      ? `<div class="allocation-card status-preview status-waitlisted"><b>Live estimate: likely waitlisted</b><p class="form-note">None of your choices have room right now, based on current submissions.${waitlistNote} Not final until a counselling round runs.</p></div>`
+      : `<div class="allocation-card status-preview status-allocated"><b>Live estimate: ${preview.hostelCode} — ${preview.hostelName}</b><p class="form-note">Room type: ${roomTypeLabel(preview.roomType)}.${waitlistNote} Not final until a counselling round runs.</p></div>`;
   }
-  return `${card}<p class="form-note" style="margin-top:14px">Priority rule: students in a smaller branch are considered first as a group; within the same branch, higher CGPA goes first. ${branchDisclaimer}</p>`;
+  return `${card}${breakdownListTemplate(breakdown)}<p class="form-note" style="margin-top:14px">Priority rule: students in a smaller branch are considered first as a group; within the same branch, higher CGPA goes first. ${branchDisclaimer}</p>`;
+}
+
+async function completeLogin(data) {
+  authState.token = data.token;
+  authState.student = data.student;
+  localStorage.setItem(TOKEN_KEY, data.token);
+  await Promise.all([loadGenderHostels(data.student.gender), loadMyChoices(), loadAllocation()]);
+  await loadPreview();
+  renderCounselling();
 }
 
 function bindAuthForm() {
   const form = document.querySelector('#auth-form');
-  document.querySelector('#auth-switch-btn').addEventListener('click', () => {
-    counsellingMode = counsellingMode === 'register' ? 'login' : 'register';
+  document.querySelector('#auth-switch-btn')?.addEventListener('click', () => {
+    authStep = 'email';
+    pendingEmail = '';
     renderCounselling();
   });
   form.addEventListener('submit', async (event) => {
@@ -188,13 +222,19 @@ function bindAuthForm() {
     const errorEl = document.querySelector('#auth-error');
     errorEl.textContent = '';
     try {
-      const data = await apiFetch(`/api/auth/${form.dataset.mode}`, { method: 'POST', body: JSON.stringify(payload) });
-      authState.token = data.token;
-      authState.student = data.student;
-      localStorage.setItem(TOKEN_KEY, data.token);
-      await Promise.all([loadGenderHostels(data.student.gender), loadMyChoices(), loadAllocation()]);
-      await loadPreview();
-      renderCounselling();
+      if (form.dataset.step === 'email') {
+        const data = await apiFetch('/api/auth/identify', { method: 'POST', body: JSON.stringify({ email: payload.email }) });
+        if (data.found) {
+          await completeLogin(data);
+        } else {
+          pendingEmail = payload.email;
+          authStep = 'register';
+          renderCounselling();
+        }
+        return;
+      }
+      const data = await apiFetch('/api/auth/register', { method: 'POST', body: JSON.stringify(payload) });
+      await completeLogin(data);
     } catch (error) {
       errorEl.textContent = error.message;
     }
@@ -250,7 +290,7 @@ function renderCounselling() {
   const body = document.querySelector('#counselling-body');
   if (!body) return;
   if (!authState.student) {
-    body.innerHTML = authFormTemplate(counsellingMode);
+    body.innerHTML = authFormTemplate();
     bindAuthForm();
     return;
   }
