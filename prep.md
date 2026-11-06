@@ -8,8 +8,15 @@ Two parts:
 - **Browse**: pick men's/women's/all hostels, filter by room type
   (1/2/3/4/6-bed) and accommodation type (Hostel vs Apartment), search by
   block code or name, and open a detail modal with room-count breakdowns,
-  AC/Non-AC tags, mess info, contact numbers, and photos. There's a
-  dark-mode toggle (persisted in `localStorage`).
+  AC/Non-AC tags, mess info, contact numbers, and photos. Each card's image
+  slot and the modal's gallery cells show **two** photos side by side
+  (`object-fit: cover`) rather than one letterboxed image — the source
+  photos' aspect ratio doesn't match the slot, so a single `contain`ed
+  image left blank bars; `secondaryImageFor()` in
+  [src/main.js](src/main.js) just picks the next image in
+  `officialImages` after the item's primary one, wrapping around, so the
+  second photo is always different from the first. There's a dark-mode
+  toggle (persisted in `localStorage`).
 - **Counselling**: register with CGPA + branch, rank up to 8 hostel/
   room-type choices, and see a live estimate of what you'd get — then a
   final result once an admin runs an actual counselling round. See
