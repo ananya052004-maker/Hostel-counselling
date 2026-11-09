@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: vit-hostel-guide
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    disk:
+      name: hostel-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    envVars:
+      - key: ADMIN_KEY
+        sync: false
